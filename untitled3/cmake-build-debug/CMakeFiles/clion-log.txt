@@ -1,0 +1,20 @@
+/home/fjj/clion/clion-2021.1.3/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /home/fjj/CLionProjects/访问像素点创造四色格
+-- The C compiler identification is GNU 9.3.0
+-- The CXX compiler identification is GNU 9.3.0
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /usr/bin/cc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+CMake Error at CMakeLists.txt:8 (TARGET_LINK_LIBRARIES):
+  Cannot specify link libraries for target "untitled}" which is not built by
+  this project.
+
+
+-- Configuring incomplete, errors occurred!
+See also "/home/fjj/CLionProjects/访问像素点创造四色格/cmake-build-debug/CMakeFiles/CMakeOutput.log".
