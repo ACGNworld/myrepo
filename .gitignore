@@ -1,0 +1,55 @@
+# General build directories
+build/
+install/
+log/
+
+# ROS 2 specific
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+
+# Colcon artifacts
+.colcon/
+*.lock
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Package specific (adjust as needed)
+*.bag
+*.mp4
+*.png
+*.jpg
+*.jpeg
+*.pdf
+
+# Custom build directories (if used)
+devel/
+.bash_ros2_cache
+
+# Python virtual environment
+venv/
+.env/
+
+# C/C++ build artifacts
+*.o
+*.a
+*.so
+*.dll
+*.exe
+
+# Backup files
+*~
+*.bak
+*.tmp
+
+# Documentation
+docs/_build/

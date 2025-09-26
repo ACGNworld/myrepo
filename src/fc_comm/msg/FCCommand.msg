@@ -1,0 +1,12 @@
+uint8 control_mode
+int16 x_offset
+int16 y_offset
+int16 z_offset
+uint16 max_speed
+uint16 heading
+float64 target_longitude
+float64 target_latitude
+uint16 target_height
+uint16 target_heading
+uint16 target_speed
+uint16 max_angular_speed

@@ -1,0 +1,9 @@
+uint8 battery
+float64 longitude
+float64 latitude
+uint16 height
+float32 speed
+float32 roll
+float32 pitch
+float32 yaw
+uint8 control_mode
