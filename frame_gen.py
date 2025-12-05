@@ -49,12 +49,12 @@ def build_flight_control_frame(
 # 示例用法
 if __name__ == "__main__":
     frame = build_flight_control_frame(
-        control_mode=0x03,
-        x_offset=100,
-        y_offset=-200,
-        z_offset=300,
-        max_speed=500,
-        heading_angle=9000,
+        control_mode=0x04,
+        x_offset=0,
+        y_offset=0,
+        z_offset=1000,
+        max_speed=1000,
+        heading_angle=0,
         target_lon=1201561707,
         target_lat=303048718,
         target_alt=2500,
@@ -63,3 +63,6 @@ if __name__ == "__main__":
         max_yaw_rate=1000,
     )
     print("生成的帧（十六进制）:", ' '.join(f'{b:02X}' for b in frame))
+
+#十米起飞
+#A5 5A AA 01 1D 04 00 00 00 00 E8 03 E8 03 00 00 6B 60 9E 47 0E 28 10 12 C4 09 00 00 50 46 DC 05 E8 03 D9 FF
