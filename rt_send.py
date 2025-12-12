@@ -351,7 +351,7 @@ class InteractiveTCPBridge:
 
 # -------------------- 入口 --------------------
 def main():
-    parser = argparse.ArgumentParser(description='交互式ArduPilot TCP飞行控制工具')
+    parser = argparse.ArgumentParser(description='交互式TCP模拟视觉飞行控制软件')
     parser.add_argument('--ip', default='127.0.0.1', help='TCP服务器IP (默认: 127.0.0.1)')
     parser.add_argument('--port', type=int, default=9998, help='TCP端口 (默认: 9998)')
     parser.add_argument('--log', metavar='FILE', help='记录所有收发数据到文件')
