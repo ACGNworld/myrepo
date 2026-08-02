@@ -4,7 +4,7 @@
 """ArduPilot FOLLOW_EXT TCP 控制台。
 
 TCP 连接的另一端应提供协议中定义的串口字节流。控制帧按 20 Hz 发送，
-鼠标选中的视觉误差会被写入下一帧以及之后的所有控制帧。
+图表点击/拖动或手动应用的 Y/Z 偏移会写入后续控制帧。
 """
 
 import argparse
@@ -39,13 +39,27 @@ MODE_NAMES = {
 
 PARAMETERS = {
     0x01: ("FOLE_AUTO_ENABLE", 1.0, 0.0, 1.0),
-    0x02: ("FOLE_KP_YAW", 0.05, -1000.0, 1000.0),
-    0x03: ("FOLE_KP_THR", 0.1, -1000.0, 1000.0),
+    0x02: ("FOLE_KP_YAW", 1.5, -1000.0, 1000.0),
+    0x03: ("FOLE_KP_THR", 0.3, -1000.0, 1000.0),
     0x04: ("FOLE_KD_YAW", 0.0, -1000.0, 1000.0),
-    0x05: ("FOLE_KD_THR", 0.0, -1000.0, 1000.0),
+    0x05: ("FOLE_KD_THR", 0.0, None, None),
     0x06: ("FOLE_SPEED", 1000.0, 0.0, 10000.0),
     0x07: ("FOLE_ALPHA", 1.0, 0.0, 1.0),
+    0x08: ("FOLE_ERR_SLOW_EN", 1.0, 0.0, 1.0),
+    0x09: ("FOLE_TURN_LIM_EN", 1.0, 0.0, 1.0),
+    0x0A: ("FOLE_CLB_SPD_EN", 1.0, 0.0, 1.0),
+    0x0B: ("FOLE_TURN_FF_EN", 1.0, 0.0, 1.0),
+    0x0C: ("FOLE_YAW_D_EN", 1.0, 0.0, 1.0),
+    0x0D: ("FOLE_ERR_SLOW_SC", 350.0, 0.001, 100000.0),
+    0x0E: ("FOLE_VERT_ERR_WT", 0.8, 0.0, 100.0),
+    0x0F: ("FOLE_MIN_SPD_MUL", 0.2, 0.0, 1.0),
+    0x10: ("FOLE_TURN_ACC_RT", 0.6, 0.0, 1.0),
+    0x11: ("FOLE_MIN_YAW_RT", math.radians(2.0), 0.0, 10.0),
 }
+
+BOOLEAN_PARAMETER_IDS = frozenset({0x01, 0x08, 0x09, 0x0A, 0x0B, 0x0C})
+
+
 def parse_hex_data(hex_str):
     """解析调试用十六进制字符串。"""
     cleaned = hex_str.replace(" ", "").replace("0x", "").replace("0X", "")
@@ -99,6 +113,8 @@ def build_parameter_frame(operation, request_id, parameter_id, value=0.0) -> byt
         raise ValueError("不支持的参数操作码")
     if not 0 <= request_id <= 0xFF or parameter_id not in PARAMETERS:
         raise ValueError("请求序号或参数 ID 无效")
+    if operation != 0x03 and PARAMETERS[parameter_id][2] is None:
+        raise ValueError(f"{PARAMETERS[parameter_id][0]} 只支持读取")
     if not math.isfinite(value):
         raise ValueError("参数值必须是有限浮点数")
     payload = struct.pack(
@@ -232,13 +248,16 @@ class InteractiveTCPBridge:
             "max_yaw_rate": 1000,
         }
         self.mouse_config = {"scale": 2.0}
+        self.offset_source = "visual"
+        self.visual_offsets = (0, 0)
+        self.manual_offsets = (0, 0)
         self.setup_ui()
 
     # ---------- UI ----------
     def setup_ui(self):
         self.root = tk.Tk()
         self.root.title(f"FOLLOW_EXT 控制台 - {self.tcp_ip}:{self.tcp_port}")
-        self.root.geometry("1280x900")
+        self.root.geometry("1280x950")
         self.root.minsize(1080, 720)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         self.root.columnconfigure(0, weight=1)
@@ -261,7 +280,7 @@ class InteractiveTCPBridge:
         self.recv_count_var = tk.StringVar(value="0")
         self.current_mode_var = tk.StringVar(value=MODE_NAMES[self.params["control_mode"]])
         self.preview_var = tk.StringVar(value="预览: Y=0, Z=0")
-        self.applied_error_var = tk.StringVar(value="已应用: Y=0, Z=0")
+        self.applied_error_var = tk.StringVar(value="已应用(视觉): Y=0, Z=0")
         self.scale_var = tk.DoubleVar(value=self.mouse_config["scale"])
         self.endpoint_ip_var = tk.StringVar(value=self.tcp_ip)
         self.endpoint_port_var = tk.StringVar(value=str(self.tcp_port))
@@ -286,6 +305,7 @@ class InteractiveTCPBridge:
         self.visual_point = None
         self.visual_marker = None
         self.visual_preview_marker = None
+        self.visual_dragging = False
         self.canvas_grid_items = []
         self.status_label = None
         self.log_text = None
@@ -342,6 +362,7 @@ class InteractiveTCPBridge:
         parameter_tab = ttk.Frame(tabs, padding=(0, 8, 0, 0))
         task_tab.columnconfigure(0, weight=1)
         parameter_tab.columnconfigure(0, weight=1)
+        parameter_tab.rowconfigure(0, weight=1)
         tabs.add(task_tab, text="任务与控制帧")
         tabs.add(parameter_tab, text="参数设置")
 
@@ -423,7 +444,7 @@ class InteractiveTCPBridge:
         self.mode_combo.bind("<<ComboboxSelected>>", self.on_mode_selected)
 
     def create_flight_params_panel(self, parent):
-        frame = ttk.LabelFrame(parent, text="控制帧字段 (0x01)", padding=10, style="Section.TLabelframe")
+        frame = ttk.LabelFrame(parent, text="控制帧字段", padding=10, style="Section.TLabelframe")
         frame.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(3, weight=1)
@@ -457,8 +478,33 @@ class InteractiveTCPBridge:
         )
 
     def create_follow_params_panel(self, parent):
-        frame = ttk.LabelFrame(parent, text="FOLLOW_EXT 参数 (协议 5.3)", padding=10, style="Section.TLabelframe")
-        frame.grid(row=0, column=0, sticky="ew")
+        container = ttk.Frame(parent)
+        container.grid(row=0, column=0, sticky="nsew")
+        container.columnconfigure(0, weight=1)
+        container.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(container, highlightthickness=0, borderwidth=0)
+        scrollbar = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+
+        frame = ttk.LabelFrame(
+            canvas,
+            text="FOLLOW_EXT 参数",
+            padding=10,
+            style="Section.TLabelframe",
+        )
+        frame_window = canvas.create_window((0, 0), window=frame, anchor="nw")
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def resize_frame(event):
+            canvas.itemconfigure(frame_window, width=event.width)
+
+        frame.bind("<Configure>", update_scroll_region)
+        canvas.bind("<Configure>", resize_frame)
         frame.columnconfigure(1, weight=1)
         frame.columnconfigure(2, weight=1)
 
@@ -565,8 +611,8 @@ class InteractiveTCPBridge:
         self.canvas.grid(row=0, column=0, sticky="nsew")
         self.canvas.bind("<Configure>", lambda _event: self.redraw_visual_canvas())
         self.canvas.bind("<Motion>", self.on_mouse_move)
-        self.canvas.bind("<Button-1>", self.on_mouse_click)
-        self.canvas.bind("<B1-Motion>", self.on_mouse_drag)
+        self.canvas.bind("<ButtonPress-1>", self.on_mouse_press)
+        self.canvas.bind("<ButtonRelease-1>", self.on_mouse_release)
         self.root.after_idle(self.redraw_visual_canvas)
 
     def create_log_panel(self):
@@ -648,28 +694,56 @@ class InteractiveTCPBridge:
         return x, y, y_error, z_error
 
     def on_mouse_move(self, event):
+        if self.visual_dragging:
+            self.update_mouse_errors(event.x, event.y, log=False)
+            return
         _x, _y, y_error, z_error = self.canvas_error(event.x, event.y)
         self.preview_var.set(f"预览: Y={y_error}, Z={z_error}")
 
-    def on_mouse_click(self, event):
+    def on_mouse_press(self, event):
+        self.visual_dragging = True
+        self.canvas.focus_set()
+        try:
+            self.canvas.grab_set()
+        except tk.TclError:
+            pass
         self.update_mouse_errors(event.x, event.y, log=True)
 
-    def on_mouse_drag(self, event):
-        self.update_mouse_errors(event.x, event.y, log=False)
+    def on_mouse_release(self, _event):
+        self.visual_dragging = False
+        try:
+            self.canvas.grab_release()
+        except tk.TclError:
+            pass
 
     def update_mouse_errors(self, x, y, log=True):
         x, y, y_error, z_error = self.canvas_error(x, y)
         with self.param_lock:
             self.params["y_offset"] = y_error
             self.params["z_offset"] = z_error
+            self.visual_offsets = (y_error, z_error)
+            self.offset_source = "visual"
         self.param_vars["y_offset"].set(str(y_error))
         self.param_vars["z_offset"].set(str(z_error))
         self.visual_point = (x, y)
         if self.visual_marker:
             self.canvas.coords(self.visual_marker, x - 8, y - 8, x + 8, y + 8)
-        self.applied_error_var.set(f"已应用: Y={y_error}, Z={z_error}")
+        self.applied_error_var.set(f"已应用(视觉): Y={y_error}, Z={z_error}")
         if log:
             self.log_message(f"视觉目标更新: Y={y_error}, Z={z_error}")
+
+    def update_visual_point_from_offsets(self, y_error, z_error):
+        """将手动输入的 Y/Z 偏移同步到图表标记，不修改已应用的参数值。"""
+        width = max(self.canvas.winfo_width(), 240)
+        height = max(self.canvas.winfo_height(), 180)
+        scale = self.mouse_config["scale"]
+        x = width / 2 + y_error / scale
+        y = height / 2 - z_error / scale
+        x = max(0, min(width, x))
+        y = max(0, min(height, y))
+        self.visual_point = (x, y)
+        if self.visual_marker:
+            self.canvas.coords(self.visual_marker, x - 8, y - 8, x + 8, y + 8)
 
     def update_mouse_scale(self, value):
         scale = float(value)
@@ -745,6 +819,12 @@ class InteractiveTCPBridge:
             return False
         with self.param_lock:
             self.params.update(parsed)
+            self.manual_offsets = (parsed["y_offset"], parsed["z_offset"])
+            self.offset_source = "manual"
+        self.update_visual_point_from_offsets(parsed["y_offset"], parsed["z_offset"])
+        self.applied_error_var.set(
+            f"已应用(手动): Y={parsed['y_offset']}, Z={parsed['z_offset']}"
+        )
         self.log_message("控制帧字段已应用，将写入后续 0x01 飞行控制帧")
         return True
 
@@ -793,8 +873,8 @@ class InteractiveTCPBridge:
                     raise ValueError("该参数只支持读取")
                 if not lower <= value <= upper:
                     raise ValueError(f"参数范围为 {lower} 到 {upper}")
-                if parameter_id == 0x01 and value not in (0.0, 1.0):
-                    raise ValueError("FOLE_AUTO_ENABLE 只能是 0 或 1")
+                if parameter_id in BOOLEAN_PARAMETER_IDS and value not in (0.0, 1.0):
+                    raise ValueError(f"{PARAMETERS[parameter_id][0]} 只能是 0 或 1")
             except ValueError as error:
                 if retry_count == 0:
                     messagebox.showerror("参数错误", str(error))
@@ -940,6 +1020,10 @@ class InteractiveTCPBridge:
         while not stop_event.is_set():
             with self.param_lock:
                 params_copy = self.params.copy()
+                if self.offset_source == "manual":
+                    params_copy["y_offset"], params_copy["z_offset"] = self.manual_offsets
+                else:
+                    params_copy["y_offset"], params_copy["z_offset"] = self.visual_offsets
             try:
                 frame = build_flight_control_frame(**params_copy)
             except (struct.error, ValueError) as error:
@@ -1154,7 +1238,7 @@ class InteractiveTCPBridge:
 def main():
     parser = argparse.ArgumentParser(description="交互式 TCP 模拟视觉飞行控制软件")
     parser.add_argument("--ip", default="127.0.0.1", help="TCP 服务器 IP (默认: 127.0.0.1)")
-    parser.add_argument("--port", type=int, default=9998, help="TCP 端口 (默认: 9998)")
+    parser.add_argument("--port", type=int, default=5762, help="TCP 端口 (默认: 5762)")
     parser.add_argument("--rate", type=float, default=20.0, help="控制帧发送速率 Hz (默认: 20)")
     parser.add_argument("--log", metavar="FILE", help="记录所有收发数据到指定文件")
     args = parser.parse_args()
